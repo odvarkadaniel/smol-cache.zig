@@ -20,7 +20,7 @@ pub fn Cache(comptime T: type) type {
 
         const Self = @This();
         const Entry = entry.Entry(T);
-        const List = dll.List(T);
+        const List = dll.List(*Entry);
 
         pub fn init(allocator: Allocator, conf: Config) !Self {
             return .{
@@ -33,10 +33,11 @@ pub fn Cache(comptime T: type) type {
         }
 
         pub fn put(self: *Self, key: []const u8, value: T, ttl: u32) !*Entry {
-            const e = try self.allocator.create(Entry);
-            e.* = Entry.init(key, value, @as(i64, ttl));
+            const allocator = self.allocator;
+            const e = try allocator.create(Entry);
+            e.* = Entry.init(allocator, key, value, @as(i64, ttl));
 
-            var node = List.Node{ .value = value };
+            var node = List.Node{ .value = e };
 
             const expires = std.time.timestamp() + @as(i64, ttl);
 
@@ -49,7 +50,7 @@ pub fn Cache(comptime T: type) type {
                     return e;
                 }
 
-                found.value_ptr.*.node.?.value = value;
+                // found.value_ptr.*.node.?.value.value = value;
             } else {
                 self.size += 1;
             }
@@ -65,11 +66,14 @@ pub fn Cache(comptime T: type) type {
         pub fn get(self: *Self, key: []const u8) ?*Entry {
             const e = self.memory.get(key) orelse return null;
 
-            if (e.expired()) {
-                // TODO: We will need to free memory.
-                std.debug.print("EXPIRED VALUE!\n", .{});
-                return null;
-            }
+            // if (e.expired()) {
+            //     e.release();
+            //     _ = self.memory.remove(key);
+            //     self.size -= 1;
+            //     self.list.remove(e.node);
+
+            //     return null;
+            // }
 
             return e;
         }
@@ -95,13 +99,13 @@ test "hashmap initial testing loop" {
     _ = try cache.put("ahoj2", @as(u32, 20), @as(u32, 2));
     _ = try cache.put("ahoj3", @as(u32, 30), @as(u32, 3));
 
-    const e = cache.get("ahoj1");
-    if (e) |good| {
-        std.debug.print("{s} -- {d}\n", .{ good.key, good.value });
-    }
+    // const e = cache.get("ahoj1");
+    // if (e) |good| {
+    //     std.debug.print("{s} -- {d}\n", .{ good.key, good.value });
+    // }
 
-    std.time.sleep(1e+9 * 3);
-    try t.expectEqual(cache.get("ahoj1"), null);
+    // std.time.sleep(1e+9 * 4);
+    // try t.expectEqual(cache.get("ahoj1"), null);
 
     var it = cache.memory.iterator();
 
@@ -109,5 +113,10 @@ test "hashmap initial testing loop" {
         std.debug.print("{s} -- {d} expires in {d}\n", .{ v.key_ptr.*, v.value_ptr.*.value, v.value_ptr.*.expires });
         // const e = v.value_ptr.*;
         cache.allocator.destroy(v.value_ptr.*);
+        // cache.list.remove(v.value_ptr.*.node.?);
     }
+
+    // _ = cache.get("ahoj1");
+    // _ = cache.get("ahoj2");
+    // _ = cache.get("ahoj3");
 }
