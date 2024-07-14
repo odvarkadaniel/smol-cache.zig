@@ -1,6 +1,6 @@
 const std = @import("std");
-const List = @import("dll.zig").List;
-const Entry = @import("entry.zig").Entry;
+const dll = @import("dll.zig");
+const entry = @import("entry.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -15,44 +15,72 @@ pub fn Cache(comptime T: type) type {
         size: u32,
         maxSize: u32,
 
-        list: List(T),
-        memory: std.StringHashMap(*Entry(T)),
+        list: List,
+        memory: std.StringHashMap(*Entry),
 
         const Self = @This();
+        const Entry = entry.Entry(T);
+        const List = dll.List(T);
 
         pub fn init(allocator: Allocator, conf: Config) !Self {
             return .{
                 .allocator = allocator,
                 .size = 0,
                 .maxSize = conf.maxSize,
-                .list = List(T).init(),
-                .memory = std.StringHashMap(*Entry(T)).init(allocator),
+                .list = List.init(),
+                .memory = std.StringHashMap(*Entry).init(allocator),
             };
         }
 
-        pub fn put(self: *Self, key: []const u8, value: T, ttl: u32) !void {
-            const entry = try self.allocator.create(Entry(T));
-            entry.* = Entry(T).init(key, value, ttl);
+        pub fn put(self: *Self, key: []const u8, value: T, ttl: u32) !*Entry {
+            const e = try self.allocator.create(Entry);
+            e.* = Entry.init(key, value, @as(i64, ttl));
+
+            var node = List.Node{ .value = value };
+
+            const expires = std.time.timestamp() + @as(i64, ttl);
 
             const found = try self.memory.getOrPut(key);
 
             if (found.found_existing) {
-                // TODO: Change the value_ptr etc.
-                // return null;
-                std.debug.print("We shouldn't be here yet...\n", .{});
+                if (found.value_ptr.*.expires - @as(u32, @intCast(std.time.timestamp())) < 0) {
+                    std.debug.print("The entry is expired!\n", .{});
+
+                    return e;
+                }
+
+                found.value_ptr.*.node.?.value = value;
             } else {
-                found.value_ptr.* = entry;
                 self.size += 1;
             }
+
+            e.node = &node;
+            self.list.insert(&node);
+            e.expires = expires;
+            found.value_ptr.* = e;
+
+            return e;
         }
 
-        // pub fn get(self: *Self, key: []const u8) *Entry {}
+        pub fn get(self: *Self, key: []const u8) ?*Entry {
+            const e = self.memory.get(key) orelse return null;
+
+            if (e.expired()) {
+                // TODO: We will need to free memory.
+                std.debug.print("EXPIRED VALUE!\n", .{});
+                return null;
+            }
+
+            return e;
+        }
 
         // pub fn delete(self: *Self, key: []const u8) *Entry {}
     };
 }
 
-test "hashmap" {
+const t = std.testing;
+
+test "hashmap initial testing loop" {
     const allocator = std.testing.allocator;
     const conf = Config{
         .maxSize = 30,
@@ -60,14 +88,26 @@ test "hashmap" {
     var cache = try Cache(u32).init(allocator, conf);
     defer cache.memory.deinit();
 
-    try cache.put("ahoj1", @as(u32, 10), @as(u32, 100));
-    try cache.put("ahoj2", @as(u32, 20), @as(u32, 300));
-    try cache.put("ahoj3", @as(u32, 30), @as(u32, 200));
+    // _ = try cache.put("ahoj1", @as(u32, 10), @as(u32, 1));
+    // std.time.sleep(3e+9);
+    // std.debug.print("Done sleeping!", .{});
+    _ = try cache.put("ahoj1", @as(u32, 10), @as(u32, 1));
+    _ = try cache.put("ahoj2", @as(u32, 20), @as(u32, 2));
+    _ = try cache.put("ahoj3", @as(u32, 30), @as(u32, 3));
+
+    const e = cache.get("ahoj1");
+    if (e) |good| {
+        std.debug.print("{s} -- {d}\n", .{ good.key, good.value });
+    }
+
+    std.time.sleep(1e+9 * 3);
+    try t.expectEqual(cache.get("ahoj1"), null);
 
     var it = cache.memory.iterator();
 
     while (it.next()) |v| {
-        std.debug.print("{s} -- {d}\n", .{ v.key_ptr.*, v.value_ptr.*.value });
+        std.debug.print("{s} -- {d} expires in {d}\n", .{ v.key_ptr.*, v.value_ptr.*.value, v.value_ptr.*.expires });
+        // const e = v.value_ptr.*;
         cache.allocator.destroy(v.value_ptr.*);
     }
 }
