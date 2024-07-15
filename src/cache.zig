@@ -51,7 +51,9 @@ pub fn Cache(comptime T: type) type {
                     return e;
                 }
 
-                found.value_ptr.*.node.?.value.value = value;
+                self.list.remove(found.value_ptr.*.node.?);
+                allocator.destroy(found.value_ptr.*.node.?);
+                allocator.destroy(found.value_ptr.*);
             } else {
                 self.size += 1;
             }
@@ -102,16 +104,18 @@ test "hashmap initial testing loop" {
     var cache = try Cache(u32).init(allocator, conf);
     defer cache.memory.deinit();
 
-    _ = try cache.put("key1", @as(u32, 10), @as(u32, 1));
+    _ = try cache.put("key1", @as(u32, 10), @as(u32, 2));
     _ = try cache.put("key2", @as(u32, 20), @as(u32, 2));
     _ = try cache.put("key3", @as(u32, 30), @as(u32, 3));
+    // Change the value for key 'key1'.
+    _ = try cache.put("key1", @as(u32, 40), @as(u32, 2));
 
     var it = cache.memory.iterator();
     while (it.next()) |v| {
-        std.debug.print("{s} -- {d} expires in {d}\n", .{ v.key_ptr.*, v.value_ptr.*.value, v.value_ptr.*.expires });
+        std.debug.print("Changed: {s} -- {d} expires in {d}\n", .{ v.key_ptr.*, v.value_ptr.*.value, v.value_ptr.*.expires });
     }
 
-    std.time.sleep(1e+9 * 2);
+    std.time.sleep(1e+9 * 3);
     const expired = cache.get("key1");
     try t.expectEqual(expired, null);
 
