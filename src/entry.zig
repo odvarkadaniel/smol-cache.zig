@@ -34,7 +34,6 @@ pub fn Entry(comptime T: type) type {
             const allocator = self.allocator;
             const node = self.node.?;
 
-            // allocator.free(self.key);
             allocator.destroy(node);
             allocator.destroy(self);
         }
