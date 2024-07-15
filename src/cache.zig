@@ -46,9 +46,7 @@ pub fn Cache(comptime T: type) type {
 
             if (found.found_existing) {
                 if (found.value_ptr.*.expires - @as(u32, @intCast(std.time.timestamp())) < 0) {
-                    std.debug.print("The entry is expired!\n", .{});
-
-                    return e;
+                    std.debug.print("Warning: put was called on an expired key: {s}\n", .{found.key_ptr.*});
                 }
 
                 self.list.remove(found.value_ptr.*.node.?);
@@ -62,6 +60,17 @@ pub fn Cache(comptime T: type) type {
             self.list.insert(node);
             e.expires = expires;
             found.value_ptr.* = e;
+
+            if (self.maxSize < self.size) {
+                const removedNode = self.list.removeTail();
+                const entryToRemove = removedNode.?.value;
+
+                _ = self.memory.remove(entryToRemove.key);
+                allocator.destroy(entryToRemove);
+                allocator.destroy(removedNode.?);
+
+                self.size -= 1;
+            }
 
             return e;
         }
@@ -96,7 +105,7 @@ pub fn Cache(comptime T: type) type {
 
 const t = std.testing;
 
-test "hashmap initial testing loop" {
+test "cache initial testing loop" {
     const allocator = std.testing.allocator;
     const conf = Config{
         .maxSize = 30,
@@ -123,5 +132,31 @@ test "hashmap initial testing loop" {
     _ = cache.delete("key2");
     _ = cache.delete("key3");
 
-    try t.expectEqual(cache.memory.count(), 0);
+    try t.expectEqual(0, cache.memory.count());
+}
+
+test "maxSize of the cache is reached" {
+    const allocator = std.testing.allocator;
+    const conf = Config{
+        .maxSize = 2,
+    };
+    var cache = try Cache(u32).init(allocator, conf);
+    defer cache.memory.deinit();
+
+    _ = try cache.put("key1", @as(u32, 10), @as(u32, 2));
+    _ = try cache.put("key2", @as(u32, 20), @as(u32, 2));
+    _ = try cache.put("key3", @as(u32, 30), @as(u32, 3));
+
+    try t.expectEqual(2, cache.memory.count());
+
+    const notFound = cache.get("key1");
+    try t.expectEqual(notFound, null);
+
+    const k2 = cache.get("key2");
+    try t.expectEqual(k2.?.value, 20);
+    const k3 = cache.get("key3");
+    try t.expectEqual(k3.?.value, 30);
+
+    _ = cache.delete("key2");
+    _ = cache.delete("key3");
 }
