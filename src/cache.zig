@@ -37,7 +37,8 @@ pub fn Cache(comptime T: type) type {
             const e = try allocator.create(Entry);
             e.* = Entry.init(allocator, key, value, @as(i64, ttl));
 
-            var node = List.Node{ .value = e };
+            const node = try allocator.create(List.Node);
+            node.* = List.Node{ .value = e };
 
             const expires = std.time.timestamp() + @as(i64, ttl);
 
@@ -55,8 +56,8 @@ pub fn Cache(comptime T: type) type {
                 self.size += 1;
             }
 
-            e.node = &node;
-            self.list.insert(&node);
+            e.node = node;
+            self.list.insert(node);
             e.expires = expires;
             found.value_ptr.* = e;
 
@@ -66,14 +67,15 @@ pub fn Cache(comptime T: type) type {
         pub fn get(self: *Self, key: []const u8) ?*Entry {
             const e = self.memory.get(key) orelse return null;
 
-            // if (e.expired()) {
-            //     e.release();
-            //     _ = self.memory.remove(key);
-            //     self.size -= 1;
-            //     self.list.remove(e.node);
+            if (e.expired()) {
+                std.debug.print("Trying to get an expired entry: {s}\n", .{key});
+                _ = self.memory.remove(key);
+                self.list.remove(e.node.?);
+                e.release();
+                self.size -= 1;
 
-            //     return null;
-            // }
+                return null;
+            }
 
             return e;
         }
@@ -92,31 +94,20 @@ test "hashmap initial testing loop" {
     var cache = try Cache(u32).init(allocator, conf);
     defer cache.memory.deinit();
 
-    // _ = try cache.put("ahoj1", @as(u32, 10), @as(u32, 1));
-    // std.time.sleep(3e+9);
-    // std.debug.print("Done sleeping!", .{});
     _ = try cache.put("ahoj1", @as(u32, 10), @as(u32, 1));
     _ = try cache.put("ahoj2", @as(u32, 20), @as(u32, 2));
     _ = try cache.put("ahoj3", @as(u32, 30), @as(u32, 3));
 
-    // const e = cache.get("ahoj1");
-    // if (e) |good| {
-    //     std.debug.print("{s} -- {d}\n", .{ good.key, good.value });
-    // }
-
-    // std.time.sleep(1e+9 * 4);
-    // try t.expectEqual(cache.get("ahoj1"), null);
+    std.time.sleep(1e+9 * 4);
+    const expired = cache.get("ahoj1");
+    try t.expectEqual(expired, null);
 
     var it = cache.memory.iterator();
 
     while (it.next()) |v| {
         std.debug.print("{s} -- {d} expires in {d}\n", .{ v.key_ptr.*, v.value_ptr.*.value, v.value_ptr.*.expires });
-        // const e = v.value_ptr.*;
-        cache.allocator.destroy(v.value_ptr.*);
-        // cache.list.remove(v.value_ptr.*.node.?);
-    }
 
-    // _ = cache.get("ahoj1");
-    // _ = cache.get("ahoj2");
-    // _ = cache.get("ahoj3");
+        cache.allocator.destroy(v.value_ptr.*.node.?);
+        cache.allocator.destroy(v.value_ptr.*);
+    }
 }

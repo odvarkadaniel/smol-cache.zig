@@ -32,9 +32,9 @@ pub fn Entry(comptime T: type) type {
 
         pub fn release(self: *Self) void {
             const allocator = self.allocator;
-            const node = self.node;
+            const node = self.node.?;
 
-            allocator.free(self.key);
+            // allocator.free(self.key);
             allocator.destroy(node);
             allocator.destroy(self);
         }
