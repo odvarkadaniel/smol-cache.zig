@@ -30,7 +30,7 @@ const conf = Config{
     .maxSize = 30,
 };
 var cache = try Cache(u32).init(allocator, conf);
-defer cache.memory.deinit();
+defer cache.deinit();
 
 _ = try cache.put("key1", @as(u32, 10), @as(u32, 2));
 

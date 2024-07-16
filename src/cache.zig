@@ -32,6 +32,17 @@ pub fn Cache(comptime T: type) type {
             };
         }
 
+        pub fn deinit(self: *Self) void {
+            var it = self.memory.iterator();
+            while (it.next()) |kv| {
+                const e = kv.value_ptr.*;
+                self.list.remove(e.node.?);
+                e.release();
+            }
+
+            self.memory.deinit();
+        }
+
         pub fn put(self: *Self, key: []const u8, value: T, ttl: u32) !*Entry {
             const allocator = self.allocator;
             const e = try allocator.create(Entry);
@@ -111,7 +122,7 @@ test "cache initial testing loop" {
         .maxSize = 30,
     };
     var cache = try Cache(u32).init(allocator, conf);
-    defer cache.memory.deinit();
+    defer cache.deinit();
 
     _ = try cache.put("key1", @as(u32, 10), @as(u32, 2));
     _ = try cache.put("key2", @as(u32, 20), @as(u32, 2));
@@ -141,7 +152,7 @@ test "maxSize of the cache is reached" {
         .maxSize = 2,
     };
     var cache = try Cache(u32).init(allocator, conf);
-    defer cache.memory.deinit();
+    defer cache.deinit();
 
     _ = try cache.put("key1", @as(u32, 10), @as(u32, 2));
     _ = try cache.put("key2", @as(u32, 20), @as(u32, 2));
@@ -156,7 +167,4 @@ test "maxSize of the cache is reached" {
     try t.expectEqual(k2.?.value, 20);
     const k3 = cache.get("key3");
     try t.expectEqual(k3.?.value, 30);
-
-    _ = cache.delete("key2");
-    _ = cache.delete("key3");
 }
